@@ -6,13 +6,17 @@ Drata, Secureframe) ask for. Markdown source, MIT licensed, free to fork, edit, 
 
 ## What's inside
 
-| Folder / file                                         | What it is                                                                                                                                                    |
-| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `controls-map.md`                                     | Master mapping: control → required evidence → where to find it → owner → update cadence. ~30 controls across 6 categories.                                    |
-| `questionnaire-answer-examples.md`                    | 12 template answers for the questions that come up on customer security questionnaires (MFA, audit logs, backups, etc.).                                      |
-| `evidence-folder-template/`                           | Ready-to-use folder layout — six numbered category folders, each with a README and 3–4 evidence templates. Drop into your evidence repo and start filling in. |
-| `platforms/aws.md`, `gcp.md`, `azure.md`, `github.md` | Where to find each piece of evidence on each platform: console paths, CLI commands, exports that satisfy auditors.                                            |
-| `LICENSE`                                             | MIT. Use it, edit it, ship it, redistribute it.                                                                                                               |
+| Folder / file                                                      | What it is                                                                                                                                                    |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `controls-map.md`                                                  | Master mapping: control → required evidence → where to find it → owner → update cadence. ~30 controls across 6 categories.                                    |
+| `evidence-register.md`                                             | The index of your whole program: one row per control → artifact → owner → last refreshed → status. Includes a copy-paste CSV.                                 |
+| `security-review-intake.md`                                        | One-page intake to scope a review before you start: trigger, deadline, framework, systems, buyer asks, evidence you already have.                             |
+| `vanta-drata-secureframe-gap-export.md`                            | How to turn a compliance platform's failing-check list into a prioritized engineering fix queue.                                                              |
+| `questionnaire-answer-examples.md`                                 | 12 template answers for the questions that come up on customer security questionnaires (MFA, audit logs, backups, etc.).                                      |
+| `evidence-folder-template/`                                        | Ready-to-use folder layout — six numbered category folders, each with a README and 3–4 evidence templates. Drop into your evidence repo and start filling in. |
+| `evidence-folder-template/_filled-example/`                        | A worked example: five control files filled in for a fictional company, so you can see what "done" looks like next to the blank templates.                    |
+| `platforms/aws.md`, `gcp.md`, `azure.md`, `github.md`, `gitlab.md` | Where to find each piece of evidence on each platform: console paths, CLI commands, exports that satisfy auditors.                                            |
+| `LICENSE`                                                          | MIT. Use it, edit it, ship it, redistribute it.                                                                                                               |
 
 ## How to use it
 
@@ -42,6 +46,16 @@ It does **not** cover:
 
 This kit covers **the operational evidence engineering teams have to produce** when a buyer or
 auditor asks for proof that a control is real.
+
+## Disclaimer
+
+This is a **starter evidence scaffold, not audit, legal, or attestation advice.** It does not make
+you SOC 2 compliant and it is not a substitute for an auditor or a CPA firm. The control IDs,
+framework cross-walks (SOC 2, ISO 27001, etc.), and platform commands are starting points — cloud
+provider APIs, console paths, and audit expectations change over time. **Verify the final control
+mappings and evidence with your auditor and confirm every command against the current vendor
+documentation** before relying on it for a real review. The filled example uses a fictional company;
+its names, dates, and numbers are illustrative.
 
 ## Updating cadence
 

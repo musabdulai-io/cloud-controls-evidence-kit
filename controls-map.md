@@ -47,7 +47,8 @@ For each control: the evidence required, where it lives, who owns it, and how of
 | 4.1 | Dependency scanning enabled with SLA on critical | Scanner config (Dependabot / Renovate / Snyk) + remediation log             | Repo settings + security advisories      | Platform | Quarterly |
 | 4.2 | Container / image scanning                       | Scanner config + last 30 deploys' scan results                              | Trivy / Artifact Registry / ECR scanning | Platform | Quarterly |
 | 4.3 | Secret scanning enabled, blocking on detection   | GitHub Advanced Security / GitLab secret detection config + remediation log | Repo security tab                        | Security | Quarterly |
-| 4.4 | Pen-test or red-team within 12 months            | Engagement report or summary                                                | Internal doc / vendor portal             | Security | Annually  |
+| 4.4 | Static analysis / code scanning (SAST)           | SAST config + findings triage log                                           | GitHub CodeQL / GitLab SAST / Semgrep    | Platform | Quarterly |
+| 4.5 | Pen-test or red-team within 12 months            | Engagement report or summary                                                | Internal doc / vendor portal             | Security | Annually  |
 
 ## 5. Backups, recovery, and availability
 

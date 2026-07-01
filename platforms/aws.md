@@ -59,10 +59,11 @@ for user in $(aws iam list-users --query 'Users[].UserName' --output text); do
   aws iam list-access-keys --user-name "$user"
 done > access-key-inventory.json
 
-# Stale keys (>90 days)
+# Stale keys (>90 days). CUTOFF handles both GNU/Linux and macOS/BSD `date`.
+CUTOFF=$(date -d '90 days ago' +%Y-%m-%d 2>/dev/null || date -v-90d +%Y-%m-%d)
 aws iam get-credential-report \
   --query Content --output text | base64 -d | \
-  awk -F, 'NR==1 || ($11 < "'$(date -v-90d +%Y-%m-%d)'" && $10 == "true") { print }'
+  awk -F, -v cutoff="$CUTOFF" 'NR==1 || ($10 == "true" && $11 < cutoff)'
 ```
 
 **Evidence**: `access-key-inventory-<date>.json` + documented rotation policy.
@@ -132,21 +133,26 @@ aws securityhub get-findings --max-results 10
 **CLI**:
 
 ```bash
-# Per-repo scanning setting
-aws ecr describe-image-scanning-configuration --repository-name <repo>
+# Per-repo scanning setting (scanOnPush lives on the repository object —
+# there is no `describe-image-scanning-configuration` command)
+aws ecr describe-repositories \
+  --query 'repositories[].{name:repositoryName,scanOnPush:imageScanningConfiguration.scanOnPush}'
 
-# Enable scan-on-push (one-time)
-aws ecr put-image-scanning-configuration \
-  --repository-name <repo> \
-  --image-scanning-configuration scanOnPush=true
+# Effective scanning configuration per repo (basic vs Enhanced/Inspector v2)
+aws ecr batch-get-repository-scanning-configuration --repository-names <repo>
 
-# Scan results for a specific image
+# Scan findings for a specific image
 aws ecr describe-image-scan-findings \
   --repository-name <repo> \
   --image-id imageDigest=<digest>
 ```
 
-**Better**: use ECR Enhanced Scanning (Inspector v2) for continuous, deeper scans.
+**Better**: use ECR Enhanced Scanning (Amazon Inspector v2) for continuous, deeper scans — set it
+once at the registry level with `aws ecr put-registry-scanning-configuration`.
+
+Required IAM: `ecr:DescribeRepositories`, `ecr:BatchGetRepositoryScanningConfiguration`,
+`ecr:DescribeImageScanFindings`. Docs:
+<https://docs.aws.amazon.com/AmazonECR/latest/userguide/image-scanning.html>
 
 ## 5. Backups, recovery
 

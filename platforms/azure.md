@@ -12,14 +12,23 @@ relevant role/group.
 **CLI**:
 
 ```bash
-# Conditional Access policies
-az ad signed-in-user list-owned-objects --query "[?@.['@odata.type']=='#microsoft.graph.policy.conditionalAccessPolicy']"
+# Conditional Access policies via Microsoft Graph (needs Policy.Read.All)
+az rest --method GET \
+  --url https://graph.microsoft.com/v1.0/identity/conditionalAccess/policies
 
-# Better via Microsoft Graph
-az rest --method GET --url https://graph.microsoft.com/v1.0/identity/conditionalAccess/policies
+# Sign-in logs are NOT in the Activity Log (that's ARM resource operations).
+# Pull them from Microsoft Graph (needs AuditLog.Read.All + Directory.Read.All).
+# Single quotes keep the shell from expanding the $top OData parameter.
+az rest --method GET \
+  --url 'https://graph.microsoft.com/v1.0/auditLogs/signIns?$top=100'
+```
 
-# Per-user MFA status — Sign-in logs filtered
-az monitor activity-log list --max-events 100 --filters "category=Sign-in"
+Alternatively, if sign-in logs are exported to a Log Analytics workspace, query the `SigninLogs`
+table with KQL:
+
+```bash
+az monitor log-analytics query --workspace <workspace-id> \
+  --analytics-query "SigninLogs | where TimeGenerated > ago(1d) | project UserPrincipalName, AuthenticationRequirement, ResultType | take 100"
 ```
 
 **Evidence**: the Conditional Access policy export — JSON of the rule requiring MFA — plus a sample
@@ -117,15 +126,18 @@ For GitHub-based deploys, see `github.md`.
 ### Azure SQL backups (control 5.1)
 
 ```bash
-# Long-term retention configuration
+# Short-term retention — point-in-time recovery window, in days (1–35)
+az sql db str-policy show --resource-group <rg> --server <server> --name <db>
+
+# Long-term retention configuration (weekly / monthly / yearly)
 az sql db ltr-policy show --resource-group <rg> --server <server> --name <db>
 
-# Short-term (point-in-time recovery)
+# Backup storage redundancy (LRS / ZRS / GRS)
 az sql db show --resource-group <rg> --server <server> --name <db> \
   --query "currentBackupStorageRedundancy"
 
-# List available backups
-az sql db ltr-backup list --resource-group <rg> --server <server> --database <db>
+# List available long-term-retention backups (ltr-backup uses --location, not --resource-group)
+az sql db ltr-backup list --location <region> --server <server> --database <db>
 ```
 
 ### Azure Backup (multi-service)

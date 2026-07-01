@@ -9,14 +9,22 @@ Per-control reference for gathering compliance evidence on Google Cloud Platform
 **Workspace admin console**: Admin → Security → 2-step verification → Enforcement. Cloud Identity
 admins are tied to Workspace; enforce 2SV there.
 
-**CLI** (Cloud Identity / Workspace via gcloud + Admin SDK):
+**CLI** (Cloud Identity / Workspace): there is no `gcloud` command that lists per-user 2SV status —
+the Admin SDK Directory API is the source of truth (the `isEnrolledIn2Sv` / `isEnforcedIn2Sv` fields
+on the `users` resource; these are **not** on the Cloud Identity group-membership resource).
 
 ```bash
-# Users with 2SV status
-gcloud admin users list --filter="isEnrolledIn2Sv=true" --format=json
+# Admin SDK Directory API — org users not enrolled in 2SV
+curl -s -H "Authorization: Bearer $(gcloud auth print-access-token)" \
+  "https://admin.googleapis.com/admin/directory/v1/users?customer=my_customer&fields=users(primaryEmail,isEnrolledIn2Sv,isEnforcedIn2Sv)" \
+  | jq '.users[] | select(.isEnrolledIn2Sv == false) | .primaryEmail'
 ```
 
-For dedicated Cloud Identity (no Workspace), the Admin SDK API is the source of truth.
+**Required access**: a Workspace / Cloud Identity admin role and the `admin.directory.user.readonly`
+OAuth scope. If you prefer a CLI wrapper, [GAM](https://github.com/GAM-team/GAM) calls the same
+Admin SDK API (e.g. `gam print users fields primaryEmail,isenrolledin2sv`). For dedicated Cloud
+Identity (no Workspace), the Admin SDK API is still the source of truth. Reference:
+<https://developers.google.com/workspace/admin/directory/reference/rest/v1/users>
 
 ### IAM roles + least privilege (control 1.2)
 
@@ -172,7 +180,7 @@ gcloud ai models list --region=<region>
 gcloud ai endpoints describe <endpoint-id> --region=<region>
 
 # Per-project quotas
-gcloud services quota list --service=aiplatform.googleapis.com --consumer=projects/<project>
+gcloud alpha services quota list --service=aiplatform.googleapis.com --consumer=projects/<project>
 ```
 
 **Vertex AI Safety Filters** (for generative models): apply them at deploy time and document the
@@ -185,8 +193,11 @@ configuration.
 gcloud billing budgets list --billing-account=<id>
 ```
 
-Set budget alerts at 50/80/100% of monthly cap. Hard caps require custom code (Pub/Sub → Cloud
-Function to disable billing).
+Set budget alerts at 50/80/100% of monthly cap. Prefer soft controls first: per-service quotas, API
+gateway / rate-limit caps, alerting, and workload-level throttles. A true hard cap (a Pub/Sub →
+Cloud Function that disables billing) is a **last-resort kill switch** — disabling billing can take
+down every workload in the project, so reserve it for noncritical/sandbox projects, never
+production.
 
 ## Authoritative references
 

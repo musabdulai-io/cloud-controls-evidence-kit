@@ -30,6 +30,6 @@ IT** jointly own offboarding.
 ## Cross-references
 
 - Controls map: rows **1.1 – 1.5** in `../../controls-map.md`
-- Platform guides: see `../../platforms/aws.md`, `gcp.md`, `azure.md`, `github.md` for where to find
-  each piece of evidence per platform
+- Platform guides: see `../../platforms/aws.md`, `gcp.md`, `azure.md`, `github.md`, `gitlab.md` for
+  where to find each piece of evidence per platform
 - Questionnaire answers: questions 1-3 in `../../questionnaire-answer-examples.md`

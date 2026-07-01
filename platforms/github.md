@@ -20,8 +20,10 @@ gh api orgs/<org> --jq '.two_factor_requirement_enabled'
 # Members with 2FA disabled (requires admin scope)
 gh api "orgs/<org>/members?filter=2fa_disabled" --jq '.[].login'
 
-# Org owners
-gh api orgs/<org>/members --jq 'map(select(.role=="admin"))'
+# Org owners — use the documented `role` query param. The /members list
+# response is a Simple User object with NO `role` field, so filtering it
+# with `select(.role=="admin")` always returns nothing. Pass ?role=admin.
+gh api "orgs/<org>/members?role=admin" --jq '.[].login'
 ```
 
 **Evidence**: confirm `two_factor_requirement_enabled = true` org-wide. This is the right control;
