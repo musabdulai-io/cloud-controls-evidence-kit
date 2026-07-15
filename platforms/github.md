@@ -33,16 +33,40 @@ it prevents anyone from being a member without 2FA.
 
 PATs are a common blind spot. Even with 2FA, a leaked PAT lets an attacker bypass it.
 
+**Read this before you file PAT evidence — coverage is not what most people assume:**
+
+- **Fine-grained PATs** targeting your org emit `personal_access_token.*` audit events (access
+  requested/granted/revoked). These you can evidence from the audit log.
+- **Classic PATs** are user-owned credentials that are **not** created inside your org, so their
+  creation does not appear in your org audit log. You can see classic PATs _act_ on the org (the
+  resulting events), but you cannot enumerate "every classic PAT with access" from the audit log
+  alone. An empty query result is **not** evidence that no classic PATs exist.
+- Audit-log API access requires an org on a plan that exposes it (Enterprise Cloud), and a token
+  with `read:audit_log`.
+
 ```bash
-# Audit log entries for PAT creation (Enterprise only)
-gh api orgs/<org>/audit-log --jq 'map(select(.action == "user.token_creation"))'
+# Fine-grained PAT lifecycle events (org audit log; needs read:audit_log)
+gh api "orgs/<org>/audit-log?phrase=action:personal_access_token" --paginate \
+  --jq '.[] | {created_at, action, actor, token_id, programmatic_access_type}'
+
+# The org's fine-grained PAT policy + pending/active grants (the authoritative
+# list for fine-grained tokens — not the audit log)
+gh api orgs/<org>/personal-access-tokens --paginate \
+  --jq '.[] | {owner: .owner.login, permissions: .permissions, access_granted_at}'
 
 # OAuth apps + GitHub Apps installed on the org
-gh api orgs/<org>/installations --jq '.installations[].account.login'
+gh api orgs/<org>/installations --paginate --jq '.installations[].account.login'
 ```
 
-**Best practice**: replace PATs with GitHub Apps (org-installable, auditable, fine-grained
-permissions). Document any remaining PATs with owner + rotation date.
+**Reference**:
+[Audit log events for your organization](https://docs.github.com/en/organizations/keeping-your-organization-secure/managing-security-settings-for-your-organization/audit-log-events-for-your-organization)
+— confirm the current action names there; GitHub renames and adds events over time.
+
+**Best practice**: restrict or block classic PATs org-wide (Settings → Personal access tokens →
+restrict access via fine-grained tokens / deny classic), which turns "we can't enumerate classic
+PATs" into "classic PATs can't reach us" — a control you _can_ evidence. Then replace PATs with
+GitHub Apps (org-installable, auditable, fine-grained permissions). Document any remaining PATs with
+owner + rotation date.
 
 ### CODEOWNERS (control 3.1 dependency)
 

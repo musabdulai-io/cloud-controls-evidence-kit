@@ -13,18 +13,64 @@ admins are tied to Workspace; enforce 2SV there.
 the Admin SDK Directory API is the source of truth (the `isEnrolledIn2Sv` / `isEnforcedIn2Sv` fields
 on the `users` resource; these are **not** on the Cloud Identity group-membership resource).
 
+**Use GAM for this one.** It is the shortest correct path, because the Directory API needs an OAuth
+scope that a plain `gcloud` login does not carry — see the warning below.
+
 ```bash
-# Admin SDK Directory API — org users not enrolled in 2SV
-curl -s -H "Authorization: Bearer $(gcloud auth print-access-token)" \
-  "https://admin.googleapis.com/admin/directory/v1/users?customer=my_customer&fields=users(primaryEmail,isEnrolledIn2Sv,isEnforcedIn2Sv)" \
-  | jq '.users[] | select(.isEnrolledIn2Sv == false) | .primaryEmail'
+# GAM — every user with their 2SV status (handles auth + paging for you)
+gam print users fields primaryEmail,suspended,isenrolledin2sv,isenforcedin2sv \
+  > 2sv-status.csv
+
+# Just the non-enrolled, non-suspended accounts (the actual finding)
+gam print users query "isEnrolledIn2Sv=False isSuspended=False" fields primaryEmail
 ```
 
-**Required access**: a Workspace / Cloud Identity admin role and the `admin.directory.user.readonly`
-OAuth scope. If you prefer a CLI wrapper, [GAM](https://github.com/GAM-team/GAM) calls the same
-Admin SDK API (e.g. `gam print users fields primaryEmail,isenrolledin2sv`). For dedicated Cloud
-Identity (no Workspace), the Admin SDK API is still the source of truth. Reference:
-<https://developers.google.com/workspace/admin/directory/reference/rest/v1/users>
+<!-- prettier-ignore -->
+> **Do not use `gcloud auth print-access-token` against the Directory API.** A normal
+> `gcloud auth login` token is scoped to `cloud-platform`, **not**
+> `admin.directory.user.readonly`, so the call returns `403 Request had insufficient
+> authentication scopes` — or, worse for evidence purposes, succeeds against a
+> different surface and returns nothing useful. It also returns only the **first page**
+> (200 users max) unless you follow `nextPageToken`, so a large org silently under-reports.
+> An empty or short result here is not evidence that everyone has 2SV.
+
+If you need the raw API rather than GAM, authenticate with the right scope and page explicitly:
+
+```bash
+# Scoped user credentials (re-consents with the Directory scope attached)
+gcloud auth application-default login \
+  --scopes="https://www.googleapis.com/auth/admin.directory.user.readonly,https://www.googleapis.com/auth/cloud-platform"
+TOKEN=$(gcloud auth application-default print-access-token)
+
+# Page through ALL users — do not stop at the first response
+PAGE=""
+: > users-2sv.json
+while : ; do
+  RESP=$(curl -s -H "Authorization: Bearer $TOKEN" \
+    "https://admin.googleapis.com/admin/directory/v1/users?customer=my_customer&maxResults=500&fields=nextPageToken,users(primaryEmail,suspended,isEnrolledIn2Sv,isEnforcedIn2Sv)${PAGE:+&pageToken=$PAGE}")
+  echo "$RESP" | jq -e '.error' >/dev/null && { echo "$RESP" | jq '.error'; break; }
+  echo "$RESP" | jq -c '.users[]?' >> users-2sv.json
+  PAGE=$(echo "$RESP" | jq -r '.nextPageToken // empty')
+  [ -z "$PAGE" ] && break
+done
+
+# The finding: active users without 2SV
+jq -r 'select(.suspended == false and .isEnrolledIn2Sv == false) | .primaryEmail' users-2sv.json
+```
+
+For a service-account (non-interactive) path you need **domain-wide delegation** with the
+`admin.directory.user.readonly` scope authorized in the Admin console, impersonating an admin user —
+a plain service-account token will not work either.
+
+**Required access**: a Workspace / Cloud Identity admin role **and** the
+`admin.directory.user.readonly` OAuth scope on the credential itself. For dedicated Cloud Identity
+(no Workspace), the Admin SDK API is still the source of truth. References:
+[authorizing Directory API requests](https://developers.google.com/workspace/admin/directory/v1/guides/authorizing)
+· [users resource](https://developers.google.com/workspace/admin/directory/reference/rest/v1/users)
+· [GAM](https://github.com/GAM-team/GAM)
+
+**Sanity-check**: `wc -l < users-2sv.json` should match your actual user count. If it is exactly 200
+or 500, you are looking at one page, not the org.
 
 ### IAM roles + least privilege (control 1.2)
 

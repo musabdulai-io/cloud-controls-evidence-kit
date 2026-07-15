@@ -59,14 +59,55 @@ for user in $(aws iam list-users --query 'Users[].UserName' --output text); do
   aws iam list-access-keys --user-name "$user"
 done > access-key-inventory.json
 
-# Stale keys (>90 days). CUTOFF handles both GNU/Linux and macOS/BSD `date`.
+# Stale keys (>90 days), from the IAM credential report.
+# Parsed by COLUMN NAME, not position: the report has two key slots
+# (access_key_1_*, access_key_2_*) and a positional expression that checks the
+# wrong column silently reports "no stale keys" instead of failing.
 CUTOFF=$(date -d '90 days ago' +%Y-%m-%d 2>/dev/null || date -v-90d +%Y-%m-%d)
-aws iam get-credential-report \
-  --query Content --output text | base64 -d | \
-  awk -F, -v cutoff="$CUTOFF" 'NR==1 || ($10 == "true" && $11 < cutoff)'
+aws iam generate-credential-report >/dev/null   # report is cached ~4h; refresh it
+aws iam get-credential-report --query Content --output text | base64 -d | \
+python3 -c '
+import csv, sys
+cutoff = sys.argv[1]
+for row in csv.DictReader(sys.stdin):
+    for slot in ("access_key_1", "access_key_2"):     # BOTH slots, not just the first
+        if row[slot + "_active"] != "true":
+            continue
+        rotated = row[slot + "_last_rotated"]
+        if rotated in ("N/A", "not_supported", ""):
+            continue
+        if rotated[:10] < cutoff:
+            print(row["user"] + "\t" + slot + "\trotated " + rotated[:10])
+' "$CUTOFF" | tee stale-access-keys.tsv
 ```
 
-**Evidence**: `access-key-inventory-<date>.json` + documented rotation policy.
+Two things worth knowing before you trust the output. The credential report is **cached for up to
+four hours** — without the `generate-credential-report` call above you can be reading a stale
+snapshot. And `root_account` appears as a row like any other; it should have no active keys at all,
+so if it shows up here, that is the finding.
+
+**Sanity-check the parse before filing it as evidence.** An empty result should mean "no stale
+keys," not "the expression silently matched nothing":
+
+```bash
+# Should print every user with at least one ACTIVE key. If this is empty but you
+# know keys exist, the parse is wrong — don't file the empty stale-key result.
+aws iam get-credential-report --query Content --output text | base64 -d | \
+  python3 -c '
+import csv, sys
+for row in csv.DictReader(sys.stdin):
+    slots = [s for s in ("access_key_1", "access_key_2") if row[s + "_active"] == "true"]
+    if slots:
+        print(row["user"], slots)
+'
+```
+
+**Field definitions**:
+[IAM credential report reference](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_getting-report.html)
+— confirm the column names against it rather than assuming an order.
+
+**Evidence**: `access-key-inventory-<date>.json` + `stale-access-keys-<date>.tsv` + documented
+rotation policy.
 
 **Better long-term**: replace IAM users + access keys with IAM Identity Center (SSO) for humans and
 IAM Roles for Service Accounts (EKS/Lambda/ECS service-linked roles) for workloads.
