@@ -9,6 +9,12 @@ Keep it in your private evidence repo next to the populated
 [`controls-map.md`](controls-map.md) tells you _what_ evidence each control needs; this register
 tracks the _actual artifacts you have_ and their freshness.
 
+**Don't use this register as a disclosure log.** It answers "what evidence do we hold, and is it
+current?" — not "who did we send it to, and has their access expired?" Those are different questions
+with different review cadences, and jamming both into one sheet makes each harder to answer. When an
+artifact leaves the company, record it in the [`evidence-sharing-log.md`](evidence-sharing-log.md)
+and sanitize it first per [`safe-evidence-sharing.md`](safe-evidence-sharing.md).
+
 ## Columns
 
 | Column           | What goes here                                                                      |
