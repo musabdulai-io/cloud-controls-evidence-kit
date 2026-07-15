@@ -54,57 +54,88 @@ also keep a written summary of the privileged roles.
 **CLI**:
 
 ```bash
-# All IAM users + their access keys
-for user in $(aws iam list-users --query 'Users[].UserName' --output text); do
-  aws iam list-access-keys --user-name "$user"
-done > access-key-inventory.json
+#!/usr/bin/env bash
+# Access-key inventory + stale-key report. Fails closed: every step that could
+# leave you holding an empty file aborts instead.
+set -euo pipefail    # -o pipefail matters: without it a failed `aws` upstream of
+                     # a pipe still exits 0 and you file an empty artifact.
 
-# Stale keys (>90 days), from the IAM credential report.
-# Parsed by COLUMN NAME, not position: the report has two key slots
-# (access_key_1_*, access_key_2_*) and a positional expression that checks the
-# wrong column silently reports "no stale keys" instead of failing.
+# 1. All IAM users + their access keys, as ONE valid JSON array (a bare loop
+#    concatenates separate JSON documents, which jq and most tooling reject).
+aws iam list-users --query 'Users[].UserName' --output text \
+  | tr '\t' '\n' \
+  | while read -r user; do
+      aws iam list-access-keys --user-name "$user" \
+        --query 'AccessKeyMetadata[].{user:UserName,id:AccessKeyId,status:Status,created:CreateDate}'
+    done \
+  | jq -s 'add // []' > access-key-inventory.json
+
+# 2. The credential report is generated ASYNCHRONOUSLY. generate- returns
+#    STARTED/INPROGRESS/COMPLETE, and get- raises ReportInProgress until it's
+#    ready. Poll to COMPLETE before reading, or you can end up with nothing.
+for _ in $(seq 1 30); do
+  state=$(aws iam generate-credential-report --query State --output text)
+  [ "$state" = "COMPLETE" ] && break
+  sleep 2
+done
+[ "$state" = "COMPLETE" ] || { echo "credential report not ready (state=$state)" >&2; exit 1; }
+
+# 3. Download to a real file, then VALIDATE it before filtering. An empty or
+#    header-less file must abort, not quietly become "no stale keys".
+report=$(mktemp)
+trap 'rm -f "$report"' EXIT
+aws iam get-credential-report --query Content --output text | base64 -d > "$report"
+[ -s "$report" ] || { echo "credential report is empty" >&2; exit 1; }
+head -1 "$report" | grep -q 'access_key_1_active' \
+  || { echo "unexpected credential-report format — refusing to filter it" >&2; exit 1; }
+
+# 4. Only now filter. Parsed by COLUMN NAME, not position: the report has two key
+#    slots (access_key_1_*, access_key_2_*) and a positional expression that
+#    checks the wrong column silently reports "no stale keys" instead of failing.
 CUTOFF=$(date -d '90 days ago' +%Y-%m-%d 2>/dev/null || date -v-90d +%Y-%m-%d)
-aws iam generate-credential-report >/dev/null   # report is cached ~4h; refresh it
-aws iam get-credential-report --query Content --output text | base64 -d | \
 python3 -c '
 import csv, sys
 cutoff = sys.argv[1]
-for row in csv.DictReader(sys.stdin):
-    for slot in ("access_key_1", "access_key_2"):     # BOTH slots, not just the first
-        if row[slot + "_active"] != "true":
-            continue
-        rotated = row[slot + "_last_rotated"]
-        if rotated in ("N/A", "not_supported", ""):
-            continue
-        if rotated[:10] < cutoff:
-            print(row["user"] + "\t" + slot + "\trotated " + rotated[:10])
-' "$CUTOFF" | tee stale-access-keys.tsv
+with open(sys.argv[2], newline="") as fh:
+    for row in csv.DictReader(fh):
+        for slot in ("access_key_1", "access_key_2"):   # BOTH slots, not just the first
+            if row[slot + "_active"] != "true":
+                continue
+            rotated = row[slot + "_last_rotated"]
+            if rotated in ("N/A", "not_supported", ""):
+                continue
+            if rotated[:10] < cutoff:
+                print("\t".join([row["user"], slot, rotated[:10]]))
+' "$CUTOFF" "$report" > stale-access-keys.tsv
+
+echo "stale keys: $(wc -l < stale-access-keys.tsv)"
 ```
 
-Two things worth knowing before you trust the output. The credential report is **cached for up to
-four hours** — without the `generate-credential-report` call above you can be reading a stale
-snapshot. And `root_account` appears as a row like any other; it should have no active keys at all,
-so if it shows up here, that is the finding.
+`root_account` appears as a row like any other; it should have no active keys at all, so if it shows
+up here, that is the finding.
 
-**Sanity-check the parse before filing it as evidence.** An empty result should mean "no stale
-keys," not "the expression silently matched nothing":
+**Sanity-check the parse before filing an empty result as evidence.** "No stale keys" and "the
+filter matched nothing" look identical in an output file, and only one of them is evidence:
 
 ```bash
 # Should print every user with at least one ACTIVE key. If this is empty but you
 # know keys exist, the parse is wrong — don't file the empty stale-key result.
-aws iam get-credential-report --query Content --output text | base64 -d | \
-  python3 -c '
+python3 -c '
 import csv, sys
-for row in csv.DictReader(sys.stdin):
+for row in csv.DictReader(open(sys.argv[1], newline="")):
     slots = [s for s in ("access_key_1", "access_key_2") if row[s + "_active"] == "true"]
     if slots:
         print(row["user"], slots)
-'
+' "$report"
 ```
 
-**Field definitions**:
-[IAM credential report reference](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_getting-report.html)
-— confirm the column names against it rather than assuming an order.
+**References**:
+[GenerateCredentialReport](https://docs.aws.amazon.com/IAM/latest/APIReference/API_GenerateCredentialReport.html)
+(async states) ·
+[GetCredentialReport](https://docs.aws.amazon.com/IAM/latest/APIReference/API_GetCredentialReport.html)
+(ReportInProgress) ·
+[credential report field definitions](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_getting-report.html)
+— confirm the column names there rather than assuming an order.
 
 **Evidence**: `access-key-inventory-<date>.json` + `stale-access-keys-<date>.tsv` + documented
 rotation policy.
